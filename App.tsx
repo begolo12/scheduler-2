@@ -21,11 +21,14 @@ import {
   Settings, LogOut, ChevronLeft, ChevronRight, CheckCircle, 
   AlertCircle, Loader2, PanelLeftClose, PanelLeft, Eye, EyeOff, 
   Save, Map as MapIcon, ClipboardList, Edit2 as EditIcon, X, Trash2,
-  ChevronDown, ChevronUp, Folder
+  ChevronDown, ChevronUp, Folder, Calendar, Clock, BarChart3, UserCog,
+  FolderPlus
 } from 'lucide-react';
 import GanttChart from './components/GanttChart';
 import TaskModal from './components/TaskModal';
-import { addMonths, startOfMonth, endOfMonth, format, parseISO, isBefore, isAfter, isValid } from 'date-fns';
+import ProjectModal from './components/ProjectModal';
+import UserModal from './components/UserModal';
+import { addMonths, startOfMonth, endOfMonth, format, parseISO, isBefore, isAfter, isValid, differenceInDays } from 'date-fns';
 
 type View = 'Dashboard' | 'Gantt' | 'TaskList' | 'Team' | 'Settings';
 type GanttFilter = 'All' | Division;
@@ -42,9 +45,15 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Modal States
+  const [isModalOpen, setIsModalOpen] = useState(false); // Task Modal
   const [editingTask, setEditingTask] = useState<Partial<Task> | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Partial<Project> | null>(null);
+
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
   
   const [viewDate, setViewDate] = useState(new Date());
   const [ganttFilter, setGanttFilter] = useState<GanttFilter>('All');
@@ -166,28 +175,47 @@ const App: React.FC = () => {
   };
 
   const handleDeleteTask = async (id: string) => {
-    if (!id) {
-      console.error("Attempted to delete task without ID");
-      return;
-    }
-    
+    if (!id) return;
     if (window.confirm('Hapus tugas ini secara permanen dari database?')) {
       try {
-        // Menggunakan referensi dokumen eksplisit dari database (db), koleksi 'tasks', dan ID dokumen
-        const taskDocRef = doc(db, 'tasks', id);
-        await deleteDoc(taskDocRef);
-        console.log(`Task ${id} successfully deleted from Firestore`);
-        
+        await deleteDoc(doc(db, 'tasks', id));
         if (isModalOpen && editingTask?.id === id) {
           setIsModalOpen(false);
           setEditingTask(null);
         }
       } catch (error) {
-        console.error("Critical Error: Failed to delete task from Firestore", error);
-        alert("Gagal menghapus tugas. Pastikan koneksi internet stabil atau Anda memiliki izin hapus.");
+        alert("Gagal menghapus tugas.");
       }
     }
   };
+
+  const handleDeleteProject = async (id: string) => {
+    if (!id) return;
+    const projectTasks = tasks.filter(t => t.projectId === id);
+    if (projectTasks.length > 0) {
+      if(!window.confirm(`Project ini memiliki ${projectTasks.length} tugas. Menghapus project juga akan menghapus tugas-tugas di dalamnya. Lanjutkan?`)) return;
+      // Delete tasks first (simplified)
+      projectTasks.forEach(async t => {
+         await deleteDoc(doc(db, 'tasks', t.id));
+      });
+    } else {
+      if (!window.confirm('Hapus project ini?')) return;
+    }
+    try {
+      await deleteDoc(doc(db, 'projects', id));
+      setIsProjectModalOpen(false);
+    } catch(e) {
+      alert("Gagal hapus project");
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    if (!id) return;
+    if(window.confirm('Hapus user ini?')) {
+        await deleteDoc(doc(db, 'users', id));
+        setIsUserModalOpen(false);
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem('daniswara_user');
@@ -252,7 +280,7 @@ const App: React.FC = () => {
           <SidebarLink icon={<LayoutDashboard size={16}/>} label="Dashboard" active={currentView === 'Dashboard'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('Dashboard')} />
           <SidebarLink icon={<GanttChartSquare size={16}/>} label="Schedule" active={currentView === 'Gantt'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('Gantt')} />
           <SidebarLink icon={<ListTodo size={16}/>} label="Task List" active={currentView === 'TaskList'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('TaskList')} />
-          <SidebarLink icon={<Users size={16}/>} label="Personnel" active={currentView === 'Team'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('Team')} />
+          <SidebarLink icon={<Users size={16}/>} label="Daftar Akun" active={currentView === 'Team'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('Team')} />
         </nav>
         <div className="p-2 bg-black/10">
           <SidebarLink icon={<Settings size={16}/>} label="Settings" active={currentView === 'Settings'} collapsed={!isSidebarOpen} onClick={() => setCurrentView('Settings')} />
@@ -284,7 +312,7 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 overflow-auto p-2 md:p-4 custom-scrollbar">
-          {currentView === 'Dashboard' && <DashboardView tasks={scopedTasks} currentUser={currentUser!} />}
+          {currentView === 'Dashboard' && <DashboardView tasks={scopedTasks} projects={projects} currentUser={currentUser!} />}
           {currentView === 'Gantt' && (
             <div className="h-full flex flex-col gap-2 animate-in fade-in duration-500">
               <div className="bg-white p-2 rounded-xl border shadow-sm flex flex-wrap justify-between items-center gap-2">
@@ -326,10 +354,13 @@ const App: React.FC = () => {
              <div className="bg-white rounded-xl border shadow-sm p-3 md:p-4 h-full flex flex-col animate-in fade-in duration-500 overflow-hidden">
                <div className="flex justify-between items-center mb-3 pb-2 border-b">
                  <div>
-                    <h2 className="text-sm font-black uppercase tracking-tight">Management Registry</h2>
+                    <h2 className="text-sm font-black uppercase tracking-tight">Management Task</h2>
                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Projects & Integrated Tasks</p>
                  </div>
-                 <button onClick={() => {setEditingTask({}); setIsModalOpen(true);}} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-widest flex items-center gap-1 shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-all"><Plus size={12}/> NEW TASK</button>
+                 <div className="flex gap-2">
+                   <button onClick={() => {setEditingProject({}); setIsProjectModalOpen(true);}} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-widest flex items-center gap-1 hover:bg-slate-200 transition-all"><FolderPlus size={12}/> NEW PROJECT</button>
+                   <button onClick={() => {setEditingTask({}); setIsModalOpen(true);}} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-widest flex items-center gap-1 shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-all"><Plus size={12}/> NEW TASK</button>
+                 </div>
                </div>
                
                <div className="flex-1 overflow-auto space-y-2 pr-1 custom-scrollbar">
@@ -351,8 +382,13 @@ const App: React.FC = () => {
                               <p className="text-[7px] font-black text-indigo-500 uppercase tracking-widest mt-0.5">{project.division} UNIT • {projectTasks.length} TASKS</p>
                             </div>
                           </div>
-                          <div className="text-slate-400">
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          <div className="flex items-center gap-2">
+                             <div className="flex opacity-0 group-hover:opacity-100 (visible on hover logic handled by css parent group would be better but simple click stops propagation here)">
+                                <span onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-white rounded-md border mr-1 cursor-pointer"><EditIcon size={12}/></span>
+                             </div>
+                             <div className="text-slate-400">
+                               {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                             </div>
                           </div>
                         </button>
                         
@@ -414,7 +450,12 @@ const App: React.FC = () => {
                </div>
              </div>
           )}
-          {currentView === 'Team' && <TeamView users={users} tasks={tasks} />}
+          {currentView === 'Team' && <TeamView 
+            users={users} 
+            onEditUser={(u) => { setEditingUser(u); setIsUserModalOpen(true); }} 
+            onDeleteUser={handleDeleteUser} 
+            onAddUser={() => { setEditingUser({}); setIsUserModalOpen(true); }}
+          />}
           {currentView === 'Settings' && <SettingsView user={currentUser!} onUpdate={async (u: any) => {
               await updateDoc(doc(db, 'users', currentUser!.id), u);
               const updatedUser = { ...currentUser!, ...u };
@@ -442,6 +483,38 @@ const App: React.FC = () => {
             setIsModalOpen(false);
           }}
           onDelete={handleDeleteTask}
+        />
+      )}
+
+      {isProjectModalOpen && (
+        <ProjectModal
+          project={editingProject}
+          onClose={() => setIsProjectModalOpen(false)}
+          onSave={async (data) => {
+             if (data.id) {
+                await updateDoc(doc(db, 'projects', data.id), data);
+             } else {
+                await addDoc(projectsCol, { ...data, createdAt: Date.now() });
+             }
+             setIsProjectModalOpen(false);
+          }}
+          onDelete={handleDeleteProject}
+        />
+      )}
+
+      {isUserModalOpen && (
+        <UserModal
+          user={editingUser}
+          onClose={() => setIsUserModalOpen(false)}
+          onSave={async (data) => {
+            if (data.id) {
+              await updateDoc(doc(db, 'users', data.id), data);
+            } else {
+              await addDoc(collection(db, 'users'), data);
+            }
+            setIsUserModalOpen(false);
+          }}
+          onDelete={handleDeleteUser}
         />
       )}
     </div>
@@ -477,16 +550,20 @@ const SidebarLink = ({ icon, label, active, collapsed, onClick }: any) => (
   </button>
 );
 
-const TeamView = ({ users, tasks }: { users: User[], tasks: Task[] }) => (
+const TeamView = ({ users, onEditUser, onDeleteUser, onAddUser }: { users: User[], onEditUser: (u: User) => void, onDeleteUser: (id: string) => void, onAddUser: () => void }) => (
   <div className="bg-white rounded-xl border shadow-sm p-4 h-full flex flex-col">
-    <h2 className="text-sm font-black uppercase tracking-tight mb-4">Personnel Database</h2>
+    <div className="flex justify-between items-center mb-4">
+      <h2 className="text-sm font-black uppercase tracking-tight">Akun Database</h2>
+      <button onClick={onAddUser} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-widest flex items-center gap-1 hover:bg-indigo-700 transition-all"><UserCog size={12}/> ADD USER</button>
+    </div>
     <div className="flex-1 overflow-auto custom-scrollbar">
       <table className="w-full text-left border-collapse">
         <thead className="bg-slate-50 border-b sticky top-0">
           <tr>
             <th className="p-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Name</th>
             <th className="p-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Unit</th>
-            <th className="p-2 text-[8px] font-black text-slate-400 uppercase tracking-widest text-right">#</th>
+            <th className="p-2 text-[8px] font-black text-slate-400 uppercase tracking-widest text-center">Role</th>
+            <th className="p-2 text-[8px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -494,8 +571,12 @@ const TeamView = ({ users, tasks }: { users: User[], tasks: Task[] }) => (
             <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
               <td className="p-2 font-bold text-slate-900 text-[9px]">{u.name}</td>
               <td className="p-2 text-slate-500 text-[8px] uppercase font-black">{u.division}</td>
-              <td className="p-2 text-right">
+              <td className="p-2 text-center">
                 <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[7px] font-black rounded uppercase border border-indigo-100">{u.role}</span>
+              </td>
+              <td className="p-2 text-right flex justify-end gap-1">
+                 <button onClick={() => onEditUser(u)} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-white border rounded shadow-sm"><EditIcon size={12} /></button>
+                 <button onClick={() => onDeleteUser(u.id)} className="p-1.5 text-slate-400 hover:text-rose-500 bg-white border rounded shadow-sm"><Trash2 size={12} /></button>
               </td>
             </tr>
           ))}
@@ -505,31 +586,94 @@ const TeamView = ({ users, tasks }: { users: User[], tasks: Task[] }) => (
   </div>
 );
 
-const DashboardView = ({ tasks, currentUser }: { tasks: Task[]; currentUser: User }) => {
+const DashboardView = ({ tasks, projects, currentUser }: { tasks: Task[]; projects: Project[]; currentUser: User }) => {
   const stats = useMemo(() => ({
     total: tasks.length,
     completed: tasks.filter(t => t.completed).length,
     active: tasks.filter(t => !t.completed).length,
+    upcoming: tasks.filter(t => !t.completed && new Date(t.endDate) > new Date()).length
   }), [tasks]);
 
+  const activeProjects = useMemo(() => {
+    return projects.filter(p => !p.division || p.division === currentUser.division || currentUser.role === 'Admin');
+  }, [projects, currentUser]);
+
+  const upcomingDeadlines = useMemo(() => {
+     return [...tasks].filter(t => !t.completed).sort((a,b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime()).slice(0, 5);
+  }, [tasks]);
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatCard label="REGISTRY" value={stats.total} color="bg-indigo-50 text-indigo-500" />
-        <StatCard label="EFFICIENCY" value={`${stats.total ? Math.round((stats.completed/stats.total)*100) : 0}%`} color="bg-emerald-50 text-emerald-500" />
-        <StatCard label="LATENCY" value={stats.active} color="bg-amber-50 text-amber-500" />
+    <div className="space-y-6">
+      {/* 1. Key Metrics */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="TOTAL TASKS" value={stats.total} icon={<ListTodo size={18}/>} color="bg-indigo-50 text-indigo-600" />
+        <StatCard label="COMPLETION" value={`${stats.total ? Math.round((stats.completed/stats.total)*100) : 0}%`} icon={<BarChart3 size={18}/>} color="bg-emerald-50 text-emerald-600" />
+        <StatCard label="ACTIVE" value={stats.active} icon={<Clock size={18}/>} color="bg-amber-50 text-amber-600" />
+        <StatCard label="DEADLINES" value={stats.upcoming} icon={<Calendar size={18}/>} color="bg-rose-50 text-rose-600" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+         {/* 2. Project Status Overview */}
+         <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black text-slate-900 uppercase mb-4 tracking-tight flex items-center gap-2">
+               <Folder size={16} className="text-indigo-600"/> Project Status
+            </h3>
+            <div className="space-y-4">
+               {activeProjects.slice(0, 5).map(p => {
+                  const pTasks = tasks.filter(t => t.projectId === p.id);
+                  const completed = pTasks.filter(t => t.completed).length;
+                  const total = pTasks.length;
+                  const percent = total > 0 ? Math.round((completed/total)*100) : 0;
+                  
+                  return (
+                    <div key={p.id} className="group">
+                       <div className="flex justify-between items-center mb-1.5">
+                          <div>
+                             <p className="font-bold text-slate-800 text-[10px] uppercase">{p.name}</p>
+                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{p.division} • {completed}/{total} Tasks</p>
+                          </div>
+                          <span className="text-[10px] font-black text-indigo-600">{percent}%</span>
+                       </div>
+                       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                       </div>
+                    </div>
+                  )
+               })}
+               {activeProjects.length === 0 && <p className="text-slate-400 italic text-center py-4 text-[10px]">No active projects.</p>}
+            </div>
+         </div>
+
+         {/* 3. Upcoming Deadlines */}
+         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+            <h3 className="text-sm font-black text-slate-900 uppercase mb-4 tracking-tight flex items-center gap-2">
+               <AlertCircle size={16} className="text-rose-500"/> Urgent Tasks
+            </h3>
+            <div className="space-y-3 flex-1 overflow-auto custom-scrollbar max-h-[300px]">
+               {upcomingDeadlines.map(t => (
+                  <div key={t.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                     <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAfter(new Date(), new Date(t.endDate)) ? 'bg-rose-500' : 'bg-amber-400'}`}></div>
+                     <div>
+                        <p className="font-bold text-slate-800 text-[9px] line-clamp-1">{t.title}</p>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Due: {format(parseISO(t.endDate), 'dd MMM')}</p>
+                     </div>
+                  </div>
+               ))}
+               {upcomingDeadlines.length === 0 && <p className="text-slate-400 italic text-center py-4 text-[10px]">No upcoming deadlines.</p>}
+            </div>
+         </div>
       </div>
     </div>
   );
 };
 
-const StatCard = ({ label, value, color }: any) => (
-  <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
+const StatCard = ({ label, value, icon, color }: any) => (
+  <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between transition-transform hover:-translate-y-1">
     <div>
-        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-        <p className="text-xl font-black text-slate-900">{value}</p>
+        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+        <p className="text-2xl font-black text-slate-900 tracking-tight">{value}</p>
     </div>
-    <div className={`p-2 rounded-lg ${color}`}><ClipboardList size={16}/></div>
+    <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
   </div>
 );
 

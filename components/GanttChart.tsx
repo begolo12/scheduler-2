@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import * as d3 from 'd3';
 import { Task, Holiday, Project } from '../types';
@@ -51,8 +50,12 @@ const GanttChart: React.FC<GanttChartProps> = ({
 
   const days = useMemo(() => {
     try {
+      if (!isValid(startDate) || !isValid(endDate) || isAfter(startDate, endDate)) {
+        return [];
+      }
       return eachDayOfInterval({ start: startDate, end: endDate });
     } catch (e) {
+      console.error("Date interval error", e);
       return [];
     }
   }, [startDate, endDate]);
@@ -172,15 +175,25 @@ const GanttChart: React.FC<GanttChartProps> = ({
     
     tasks.forEach((task, i) => {
       if (!task.startDate || !task.endDate) return;
+      
+      const tStart = parseISO(task.startDate);
+      const tEnd = parseISO(task.endDate);
+
+      // Validation to prevent NaNs
+      if (!isValid(tStart) || !isValid(tEnd)) return;
+
       const padding = isMobile ? 8 : 10;
       const y = i * rowHeight + padding;
       const bHeight = rowHeight - (padding * 2);
-      const tStart = parseISO(task.startDate);
-      const tEnd = parseISO(task.endDate);
+      
       const startOffset = differenceInDays(tStart, startDate);
       const duration = Math.max(differenceInDays(tEnd, tStart) + 1, 1);
+      
+      // Calculate coordinates and ensure they are finite numbers
       const x = startOffset * colWidth;
       const width = Math.max(duration * colWidth, 10);
+
+      if (!Number.isFinite(x) || !Number.isFinite(width)) return;
 
       let barColor = "#6366f1"; 
       if (task.completed || task.status === 'Finalisasi') barColor = "#10b981"; 

@@ -7,6 +7,8 @@ export interface Project {
   id: string;
   name: string;
   division: Division;
+  startDate?: string;
+  endDate?: string;
   createdAt: number;
 }
 

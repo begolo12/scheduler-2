@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Task, Division, User as UserType, Project } from '../types';
 import { DIVISIONS } from '../constants';
 import { X, Trash2, User, UserPlus, FolderPlus, Folder } from 'lucide-react';
-import { format, parseISO, isValid } from 'date-fns';
+import { format, parseISO, isValid, isBefore, isAfter } from 'date-fns';
 
 interface TaskModalProps {
   task: Partial<Task> | null;
@@ -78,6 +78,19 @@ const TaskModal: React.FC<TaskModalProps> = ({
     if (!formData.title?.trim()) return alert("Judul task wajib diisi!");
     if (!formData.division) return alert("Divisi wajib diisi!");
     
+    // Project Constraints Validation
+    if (formData.projectId) {
+      const selectedProject = projects.find(p => p.id === formData.projectId);
+      if (selectedProject && selectedProject.startDate && selectedProject.endDate) {
+        if (formData.startDate && formData.startDate < selectedProject.startDate) {
+          return alert(`Tanggal mulai task tidak boleh mendahului tanggal mulai project (${format(parseISO(selectedProject.startDate), 'dd MMM yyyy')})`);
+        }
+        if (formData.endDate && formData.endDate > selectedProject.endDate) {
+          return alert(`Tanggal selesai task tidak boleh melebihi tanggal selesai project (${format(parseISO(selectedProject.endDate), 'dd MMM yyyy')})`);
+        }
+      }
+    }
+
     const isFinal = formData.status === 'Finalisasi' || !!formData.fDate;
     onSave({ 
       ...formData, 
@@ -141,7 +154,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
                     <option value="">-- Tanpa Project (General) --</option>
                     {availableProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
-                  <button type="button" onClick={() => setIsCreatingProject(true)} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-all shadow-sm"><FolderPlus size={20} /></button>
+                  {/* Quick create button removed to force usage of Main Project Management for correct dates */}
                 </div>
               ) : (
                 <div className="flex gap-2">

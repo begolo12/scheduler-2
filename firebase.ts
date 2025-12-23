@@ -1,6 +1,9 @@
 import { initializeApp } from "firebase/app";
-// Import Firestore members using standard modular SDK syntax
-import { 
+import * as firestore from "firebase/firestore";
+
+// Destructure from the namespace with an explicit any cast to handle 
+// environments where TypeScript fails to resolve the exports correctly.
+const { 
   getFirestore, 
   collection, 
   addDoc, 
@@ -12,7 +15,7 @@ import {
   orderBy, 
   setDoc, 
   getDocs 
-} from "firebase/firestore";
+} = firestore as any;
 
 const firebaseConfig = {
   apiKey: "AIzaSyC3cvF-8_xfwCogL-H7bFTnY6pF3kPSk-M",
@@ -24,16 +27,13 @@ const firebaseConfig = {
   measurementId: "G-68KBZDDT8L"
 };
 
-// Initialize Firebase app instance
 const app = initializeApp(firebaseConfig);
-// Get Firestore instance
 export const db = getFirestore(app);
 
-// Pre-defined collection references for tasks and projects
+// Pre-defined collection references
 export const tasksCol = collection(db, "tasks");
 export const projectsCol = collection(db, "projects");
 
-// Export Firestore methods for use in other parts of the application
 export { 
   doc, 
   addDoc, 
