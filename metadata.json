@@ -1,0 +1,7 @@
+{
+  "name": "Daniswara Scheduler",
+  "description": "A high-density resource management terminal for Daniswara. High-performance Gantt chart and tiered personnel access system.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
