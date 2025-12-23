@@ -1,4 +1,3 @@
-
 export type Division = 'General' | 'Busdev' | 'Operasi' | 'Keuangan';
 export type Role = 'Admin' | 'Manager' | 'SPV' | 'Staff';
 export type TaskStatus = 'Draft' | 'Eksekusi' | 'Review' | 'Finalisasi';
@@ -24,9 +23,10 @@ export interface Task {
   assignees: string[];
   createdAt: number;
   status?: TaskStatus;
-  sDate?: string; 
-  dDate?: string; 
-  fDate?: string; 
+  // Actual tracking dates
+  sDate?: string; // Tanggal Start (S)
+  dDate?: string; // Tanggal Draft/Pengecekan (D)
+  fDate?: string; // Tanggal Finish (F)
 }
 
 export interface User {
@@ -36,7 +36,7 @@ export interface User {
   password?: string;
   role: Role;
   division: Division;
-  photoURL?: string; 
+  photoURL?: string; // Base64 or URL
 }
 
 export interface Holiday {

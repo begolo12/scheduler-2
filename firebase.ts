@@ -1,19 +1,5 @@
 import { initializeApp } from "firebase/app";
-import * as firestore from "firebase/firestore";
-
-const { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  setDoc, 
-  getDocs 
-} = firestore;
+import * as Firestore from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC3cvF-8_xfwCogL-H7bFTnY6pF3kPSk-M",
@@ -26,13 +12,15 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = Firestore.getFirestore(app);
 
-// Pre-defined collection references
-export const tasksCol = collection(db, "tasks");
-export const projectsCol = collection(db, "projects");
+// Collection references
+export const schedulesCol = Firestore.collection(db, "schedules");
+export const tasksCol = Firestore.collection(db, "tasks");
+export const projectsCol = Firestore.collection(db, "projects");
 
-export { 
+// Re-exporting modular functions
+export const { 
   doc, 
   addDoc, 
   updateDoc, 
@@ -43,4 +31,4 @@ export {
   setDoc, 
   getDocs, 
   collection 
-};
+} = Firestore;

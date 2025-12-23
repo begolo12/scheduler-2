@@ -1,31 +1,18 @@
+
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import * as d3 from 'd3';
-import { Task, Holiday, Project } from '../types';
-import { format, differenceInDays, eachDayOfInterval, isSameDay, isAfter, parseISO, isValid } from 'date-fns';
+import { Task, Holiday } from '../types';
+import { format, differenceInDays, eachDayOfInterval, isSameDay, isAfter, parseISO } from 'date-fns';
 
 interface GanttChartProps {
   tasks: Task[];
-  projects: Project[];
   holidays: Holiday[];
-  taskNumberMap: Record<string, string>;
   onTaskClick: (task: Task) => void;
-  onLabelClick: (task: Task) => void;
   startDate: Date;
   endDate: Date;
-  scrollToTaskId?: string | null;
 }
 
-const GanttChart: React.FC<GanttChartProps> = ({ 
-  tasks, 
-  projects,
-  holidays, 
-  taskNumberMap,
-  onTaskClick, 
-  onLabelClick,
-  startDate, 
-  endDate,
-  scrollToTaskId 
-}) => {
+const GanttChart: React.FC<GanttChartProps> = ({ tasks, holidays, onTaskClick, startDate, endDate }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -41,26 +28,30 @@ const GanttChart: React.FC<GanttChartProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const isMobile = containerWidth < 768;
-  
-  // Define widths for the left sidebar columns
-  const noColWidth = isMobile ? 35 : 45;
-  const taskNameColWidth = isMobile ? 100 : 180;
-  const labelWidth = noColWidth + taskNameColWidth;
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.altKey) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
 
+  const isMobile = containerWidth < 768;
   const days = useMemo(() => {
     try {
-      if (!isValid(startDate) || !isValid(endDate) || isAfter(startDate, endDate)) {
-        return [];
-      }
       return eachDayOfInterval({ start: startDate, end: endDate });
     } catch (e) {
-      console.error("Date interval error", e);
       return [];
     }
   }, [startDate, endDate]);
   
   const isOneMonth = days.length <= 32;
+  const labelWidth = isMobile ? 110 : 260; 
   const minColWidth = isOneMonth ? (isMobile ? 35 : 40) : (isMobile ? 18 : 20);
   
   const colWidth = useMemo(() => {
@@ -70,32 +61,8 @@ const GanttChart: React.FC<GanttChartProps> = ({
     return isOneMonth ? Math.max(dynamicWidth, minColWidth) : Math.max(dynamicWidth, 15);
   }, [containerWidth, labelWidth, days.length, isOneMonth, minColWidth]);
 
-  const rowHeight = isMobile ? 48 : 50;
-  const headerHeight = isMobile ? 65 : 75;
-
-  const scrollToTask = (task: Task) => {
-    if (!task.startDate || !containerRef.current) return;
-    const taskDate = parseISO(task.startDate);
-    if (!isValid(taskDate)) return;
-    
-    const dayOffset = differenceInDays(taskDate, startDate);
-    const scrollX = Math.max(0, (dayOffset * colWidth) - 100);
-    
-    containerRef.current.scrollTo({
-      left: scrollX,
-      behavior: 'smooth'
-    });
-  };
-
-  useEffect(() => {
-    if (scrollToTaskId && tasks.length > 0) {
-      const task = tasks.find(t => t.id === scrollToTaskId);
-      if (task) {
-        const timer = setTimeout(() => scrollToTask(task), 300);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [scrollToTaskId, startDate, tasks]);
+  const rowHeight = isMobile ? 54 : 56;
+  const headerHeight = isMobile ? 75 : 85;
 
   useEffect(() => {
     if (!svgRef.current || days.length === 0 || containerWidth === 0) return;
@@ -104,35 +71,24 @@ const GanttChart: React.FC<GanttChartProps> = ({
     svg.selectAll("*").remove();
 
     const chartWidth = days.length * colWidth;
-    const chartHeight = Math.max(tasks.length * rowHeight, 300);
+    const chartHeight = Math.max(tasks.length * rowHeight, 400);
 
     svg.attr("width", labelWidth + chartWidth)
        .attr("height", headerHeight + chartHeight + 40);
 
     const defs = svg.append("defs");
-    
     const filter = defs.append("filter")
-        .attr("id", "task-shadow-final-v3")
-        .attr("height", "150%");
+        .attr("id", "drop-shadow")
+        .attr("height", "130%");
     filter.append("feGaussianBlur").attr("in", "SourceAlpha").attr("stdDeviation", 1).attr("result", "blur");
     filter.append("feOffset").attr("dx", 0).attr("dy", 1).attr("result", "offsetBlur");
     const feMerge = filter.append("feMerge");
     feMerge.append("feMergeNode").attr("in", "offsetBlur");
     feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
-    defs.append("clipPath")
-        .attr("id", "gantt-chart-boundary-fixed")
-        .append("rect")
-        .attr("x", 0)
-        .attr("y", -headerHeight)
-        .attr("width", chartWidth)
-        .attr("height", chartHeight + headerHeight + 200);
-
-    // 1. Background Grid
-    const grid = svg.append("g")
-      .attr("transform", `translate(${labelWidth}, ${headerHeight})`)
-      .attr("clip-path", "url(#gantt-chart-boundary-fixed)");
+    const grid = svg.append("g").attr("transform", `translate(${labelWidth}, ${headerHeight})`);
     
+    // Grid Background
     days.forEach((day, i) => {
       const isWeekend = day.getDay() === 0 || day.getDay() === 6;
       const holiday = holidays.find(h => h && h.date && isSameDay(new Date(h.date), day));
@@ -141,7 +97,7 @@ const GanttChart: React.FC<GanttChartProps> = ({
       if (isWeekend || holiday) {
         grid.append("rect")
           .attr("x", x).attr("y", 0).attr("width", colWidth).attr("height", chartHeight)
-          .attr("fill", holiday ? "#fff1f2" : "#f8fafc");
+          .attr("fill", holiday ? "#fff1f2" : "#f8fafc").attr("opacity", holiday ? 0.9 : 1);
       }
       grid.append("line").attr("x1", x).attr("x2", x).attr("y1", 0).attr("y2", chartHeight).attr("stroke", "#f1f5f9").attr("stroke-width", 1);
     });
@@ -150,50 +106,46 @@ const GanttChart: React.FC<GanttChartProps> = ({
       grid.append("line").attr("x1", 0).attr("x2", chartWidth).attr("y1", i * rowHeight).attr("y2", i * rowHeight).attr("stroke", "#f1f5f9").attr("stroke-width", 1);
     }
 
-    // 2. Timeline Header
+    // Left Labels
+    const labels = svg.append("g").attr("transform", `translate(0, ${headerHeight})`);
+    tasks.forEach((task, i) => {
+      const y = i * rowHeight;
+      labels.append("rect").attr("x", 0).attr("y", y).attr("width", labelWidth).attr("height", rowHeight).attr("fill", i % 2 === 0 ? "white" : "#fcfdfe").attr("stroke", "#f1f5f9");
+      labels.append("text").attr("x", isMobile ? 12 : 24).attr("y", y + (rowHeight / 2) - 2).text(task.title || 'Untitled').attr("font-size", isMobile ? "10px" : "12px").attr("font-weight", "900").attr("fill", "#1e293b").attr("clip-path", "inset(0 0 0 0)");
+      labels.append("text").attr("x", isMobile ? 12 : 24).attr("y", y + (rowHeight / 2) + 12).text(`${(task.division || 'General').toUpperCase()}`).attr("font-size", "7px").attr("font-weight", "900").attr("fill", "#6366f1").attr("letter-spacing", "0.05em");
+    });
+
+    // Dates Header
     const header = svg.append("g").attr("transform", `translate(${labelWidth}, 0)`);
     days.forEach((day, i) => {
       const x = i * colWidth;
       if (day.getDate() === 1 || i === 0) {
-        header.append("text").attr("x", x + 6).attr("y", 20).text(format(day, isMobile ? "MMM" : "MMMM yyyy").toUpperCase()).attr("font-size", "8px").attr("font-weight", "900").attr("fill", "#94a3b8");
+        header.append("text").attr("x", x + 6).attr("y", 25).text(format(day, isMobile ? "MMM" : "MMMM yyyy").toUpperCase()).attr("font-size", isMobile ? "8px" : "10px").attr("font-weight", "900").attr("fill", "#94a3b8");
       }
       const holiday = holidays.find(h => h && h.date && isSameDay(new Date(h.date), day));
       if (isOneMonth || day.getDate() % 5 === 0 || day.getDate() === 1) {
-        header.append("text").attr("x", x + colWidth / 2).attr("y", 40).attr("text-anchor", "middle").text(day.getDate()).attr("font-size", isMobile ? "9px" : "11px").attr("font-weight", holiday ? "900" : "800").attr("fill", holiday ? "#ef4444" : "#334155");
+        header.append("text").attr("x", x + colWidth / 2).attr("y", 48).attr("text-anchor", "middle").text(day.getDate()).attr("font-size", isMobile ? "10px" : "13px").attr("font-weight", holiday ? "900" : "800").attr("fill", holiday ? "#ef4444" : "#334155");
       }
       if (isOneMonth) {
-        header.append("text").attr("x", x + colWidth / 2).attr("y", 54).attr("text-anchor", "middle").text(format(day, 'E')[0].toUpperCase()).attr("font-size", "7px").attr("font-weight", "900").attr("fill", holiday || day.getDay() === 0 ? "#f43f5e" : "#cbd5e1");
+        header.append("text").attr("x", x + colWidth / 2).attr("y", 65).attr("text-anchor", "middle").text(format(day, 'E')[0].toUpperCase()).attr("font-size", "8px").attr("font-weight", "900").attr("fill", holiday || day.getDay() === 0 ? "#f43f5e" : "#cbd5e1");
       }
     });
 
-    // 3. Task Bars
-    const bars = svg.append("g")
-      .attr("transform", `translate(${labelWidth}, ${headerHeight})`)
-      .attr("clip-path", "url(#gantt-chart-boundary-fixed)");
-
+    // Task Bars and Status Markers
+    const bars = svg.append("g").attr("transform", `translate(${labelWidth}, ${headerHeight})`);
     const today = new Date();
     
     tasks.forEach((task, i) => {
       if (!task.startDate || !task.endDate) return;
-      
-      const tStart = parseISO(task.startDate);
-      const tEnd = parseISO(task.endDate);
-
-      // Validation to prevent NaNs
-      if (!isValid(tStart) || !isValid(tEnd)) return;
-
-      const padding = isMobile ? 8 : 10;
+      const padding = isMobile ? 10 : 12;
       const y = i * rowHeight + padding;
       const bHeight = rowHeight - (padding * 2);
-      
+      const tStart = parseISO(task.startDate);
+      const tEnd = parseISO(task.endDate);
       const startOffset = differenceInDays(tStart, startDate);
       const duration = Math.max(differenceInDays(tEnd, tStart) + 1, 1);
-      
-      // Calculate coordinates and ensure they are finite numbers
       const x = startOffset * colWidth;
       const width = Math.max(duration * colWidth, 10);
-
-      if (!Number.isFinite(x) || !Number.isFinite(width)) return;
 
       let barColor = "#6366f1"; 
       if (task.completed || task.status === 'Finalisasi') barColor = "#10b981"; 
@@ -205,70 +157,60 @@ const GanttChart: React.FC<GanttChartProps> = ({
       }
 
       const barGroup = bars.append("g").attr("class", "cursor-pointer group").on("click", () => onTaskClick(task));
-      barGroup.append("rect")
-        .attr("x", x + 1).attr("y", y).attr("width", Math.max(width - 2, 8)).attr("height", bHeight)
-        .attr("rx", 6).attr("fill", barColor).attr("stroke", "white").attr("stroke-width", 1)
-        .attr("filter", "url(#task-shadow-final-v3)");
+      barGroup.append("rect").attr("x", x + 1).attr("y", y).attr("width", Math.max(width - 2, 8)).attr("height", bHeight).attr("rx", 12).attr("fill", barColor).attr("stroke", "white").attr("stroke-width", 1).attr("filter", "url(#drop-shadow)");
 
-      if (width > 40) {
-        barGroup.append("text").attr("x", x + 8).attr("y", y + bHeight / 2 + 3).text(task.title).attr("font-size", "8px").attr("font-weight", "800").attr("fill", "white").attr("pointer-events", "none");
+      // Teks Judul (Hanya jika cukup lebar)
+      if (width > 50) {
+        barGroup.append("text").attr("x", x + 10).attr("y", y + bHeight / 2 + 3).text(task.title).attr("font-size", "9px").attr("font-weight", "800").attr("fill", "white").attr("pointer-events", "none").attr("clip-path", `inset(0 0 0 0)`);
       }
+
+      // Render S, D, F markers
+      const statusMarkers = [
+        { key: 'sDate', label: 'S', color: '#6366f1' },
+        { key: 'dDate', label: 'D', color: '#f59e0b' },
+        { key: 'fDate', label: 'F', color: '#10b981' }
+      ];
+
+      statusMarkers.forEach(m => {
+        const dateVal = task[m.key as keyof Task] as string;
+        if (dateVal) {
+          const mDate = parseISO(dateVal);
+          if (mDate >= startDate && mDate <= endDate) {
+            const mX = differenceInDays(mDate, startDate) * colWidth + colWidth / 2;
+            const markerG = barGroup.append("g");
+            
+            markerG.append("circle")
+              .attr("cx", mX)
+              .attr("cy", y + bHeight + 5)
+              .attr("r", 6)
+              .attr("fill", m.color)
+              .attr("stroke", "white")
+              .attr("stroke-width", 1);
+
+            markerG.append("text")
+              .attr("x", mX)
+              .attr("y", y + bHeight + 8)
+              .attr("text-anchor", "middle")
+              .text(m.label)
+              .attr("font-size", "7px")
+              .attr("font-weight", "900")
+              .attr("fill", "white");
+          }
+        }
+      });
     });
 
     // Today Indicator
     if (today >= startDate && today <= endDate) {
       const todayX = differenceInDays(today, startDate) * colWidth + (colWidth / 2);
-      grid.append("line").attr("x1", todayX).attr("x2", todayX).attr("y1", 0).attr("y2", chartHeight).attr("stroke", "#f43f5e").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2").attr("opacity", 0.7);
+      grid.append("line").attr("x1", todayX).attr("x2", todayX).attr("y1", -headerHeight).attr("y2", chartHeight).attr("stroke", "#f43f5e").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2").attr("opacity", 0.6);
     }
-
-    // 4. Left Sidebar Header (NO | TASK NAME)
-    const labelHeader = svg.append("g");
-    labelHeader.append("rect").attr("x", 0).attr("y", 0).attr("width", labelWidth).attr("height", headerHeight).attr("fill", "white").attr("stroke", "#f1f5f9");
-    
-    // Column headers
-    labelHeader.append("text").attr("x", 8).attr("y", headerHeight - 30).text("NO").attr("font-size", "8px").attr("font-weight", "900").attr("fill", "#64748b").attr("letter-spacing", "0.05em");
-    labelHeader.append("text").attr("x", noColWidth + 8).attr("y", headerHeight - 30).text("TASK NAME").attr("font-size", "8px").attr("font-weight", "900").attr("fill", "#64748b").attr("letter-spacing", "0.05em");
-    
-    // Separator line for NO column in header
-    labelHeader.append("line").attr("x1", noColWidth).attr("x2", noColWidth).attr("y1", headerHeight - 45).attr("y2", headerHeight).attr("stroke", "#f1f5f9");
-
-    // 5. Left Sidebar Rows
-    const labelsGroup = svg.append("g").attr("transform", `translate(0, ${headerHeight})`);
-    tasks.forEach((task, i) => {
-      const y = i * rowHeight;
-      const project = projects.find(p => p.id === task.projectId);
-      const subLabel = project ? `${project.name} | ${task.division || 'General'}` : (task.division || 'General');
-      const tNum = taskNumberMap[task.id] || '';
-
-      const g = labelsGroup.append("g")
-        .attr("class", "cursor-pointer")
-        .on("click", () => {
-          onLabelClick(task);
-          scrollToTask(task);
-        });
-
-      // Background row
-      g.append("rect")
-        .attr("x", 0).attr("y", y).attr("width", labelWidth).attr("height", rowHeight)
-        .attr("fill", i % 2 === 0 ? "white" : "#fcfdfe").attr("stroke", "#f1f5f9");
-
-      // Column separator line
-      g.append("line").attr("x1", noColWidth).attr("x2", noColWidth).attr("y1", y).attr("y2", y + rowHeight).attr("stroke", "#f1f5f9");
-
-      // NO Column Text
-      g.append("text").attr("x", noColWidth / 2).attr("y", y + (rowHeight / 2) + 3).attr("text-anchor", "middle").text(tNum).attr("font-size", isMobile ? "8px" : "9px").attr("font-weight", "900").attr("fill", "#64748b");
-
-      // TASK NAME Column Text
-      g.append("text").attr("x", noColWidth + 12).attr("y", y + (rowHeight / 2) - 2).text(task.title || 'Untitled').attr("font-size", isMobile ? "9px" : "10px").attr("font-weight", "900").attr("fill", "#1e293b");
-      g.append("text").attr("x", noColWidth + 12).attr("y", y + (rowHeight / 2) + 10).text((subLabel || '').toUpperCase()).attr("font-size", "6.5px").attr("font-weight", "900").attr("fill", "#6366f1").attr("letter-spacing", "0.01em");
-    });
-
-  }, [tasks, projects, days, holidays, taskNumberMap, onTaskClick, startDate, endDate, containerWidth, colWidth, isOneMonth, rowHeight, labelWidth, isMobile, noColWidth]);
+  }, [tasks, days, holidays, onTaskClick, startDate, endDate, containerWidth, colWidth, isOneMonth, rowHeight, labelWidth, isMobile]);
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-white overflow-hidden rounded-xl border shadow-sm border-slate-100">
-      <div className="flex-1 w-full overflow-auto gantt-scroll overflow-x-auto" ref={containerRef}>
-        <svg ref={svgRef} className="block" />
+    <div className="relative w-full h-full flex flex-col bg-white overflow-hidden rounded-[1.5rem] md:rounded-[2.5rem] border shadow-sm border-slate-100" ref={containerRef}>
+      <div className="flex-1 w-full overflow-auto gantt-scroll overflow-x-auto">
+        <svg ref={svgRef} className="block transition-all duration-300" />
       </div>
     </div>
   );
