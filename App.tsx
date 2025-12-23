@@ -22,7 +22,7 @@ import {
   AlertCircle, Loader2, PanelLeftClose, PanelLeft, Eye, EyeOff, 
   Save, Map as MapIcon, ClipboardList, Edit2 as EditIcon, X, Trash2,
   ChevronDown, ChevronUp, Folder, Calendar, Clock, BarChart3, UserCog,
-  FolderPlus
+  FolderPlus, PieChart, Activity, AlertTriangle
 } from 'lucide-react';
 import GanttChart from './components/GanttChart';
 import TaskModal from './components/TaskModal';
@@ -587,12 +587,26 @@ const TeamView = ({ users, onEditUser, onDeleteUser, onAddUser }: { users: User[
 );
 
 const DashboardView = ({ tasks, projects, currentUser }: { tasks: Task[]; projects: Project[]; currentUser: User }) => {
-  const stats = useMemo(() => ({
-    total: tasks.length,
-    completed: tasks.filter(t => t.completed).length,
-    active: tasks.filter(t => !t.completed).length,
-    upcoming: tasks.filter(t => !t.completed && new Date(t.endDate) > new Date()).length
-  }), [tasks]);
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.completed).length;
+    const overdue = tasks.filter(t => !t.completed && new Date(t.endDate) < new Date()).length;
+    
+    // Division breakdown
+    const divisions = DIVISIONS.map(d => ({
+        name: d,
+        total: tasks.filter(t => t.division === d).length,
+        completed: tasks.filter(t => t.division === d && t.completed).length
+    }));
+
+    return {
+      total,
+      completed,
+      overdue,
+      active: total - completed,
+      divisions
+    };
+  }, [tasks]);
 
   const activeProjects = useMemo(() => {
     return projects.filter(p => !p.division || p.division === currentUser.division || currentUser.role === 'Admin');
@@ -604,22 +618,42 @@ const DashboardView = ({ tasks, projects, currentUser }: { tasks: Task[]; projec
 
   return (
     <div className="space-y-6">
-      {/* 1. Key Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="TOTAL TASKS" value={stats.total} icon={<ListTodo size={18}/>} color="bg-indigo-50 text-indigo-600" />
-        <StatCard label="COMPLETION" value={`${stats.total ? Math.round((stats.completed/stats.total)*100) : 0}%`} icon={<BarChart3 size={18}/>} color="bg-emerald-50 text-emerald-600" />
-        <StatCard label="ACTIVE" value={stats.active} icon={<Clock size={18}/>} color="bg-amber-50 text-amber-600" />
-        <StatCard label="DEADLINES" value={stats.upcoming} icon={<Calendar size={18}/>} color="bg-rose-50 text-rose-600" />
+      {/* 1. Key Metrics with Better Visuals */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="TOTAL REGISTRY" value={stats.total} icon={<ListTodo size={20}/>} color="bg-indigo-50 text-indigo-600" sub="All Tasks" />
+        <StatCard label="EFFICIENCY" value={`${stats.total ? Math.round((stats.completed/stats.total)*100) : 0}%`} icon={<Activity size={20}/>} color="bg-emerald-50 text-emerald-600" sub="Completion Rate" />
+        <StatCard label="LATENCY" value={stats.overdue} icon={<AlertTriangle size={20}/>} color="bg-rose-50 text-rose-600" sub="Overdue Tasks" />
+        <StatCard label="ACTIVE LOAD" value={stats.active} icon={<Clock size={20}/>} color="bg-amber-50 text-amber-600" sub="In Progress" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-         {/* 2. Project Status Overview */}
-         <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+         {/* 2. Division Breakdown (New) */}
+         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
             <h3 className="text-sm font-black text-slate-900 uppercase mb-4 tracking-tight flex items-center gap-2">
-               <Folder size={16} className="text-indigo-600"/> Project Status
+               <PieChart size={16} className="text-indigo-600"/> Division Load
             </h3>
-            <div className="space-y-4">
-               {activeProjects.slice(0, 5).map(p => {
+            <div className="space-y-4 flex-1 overflow-auto custom-scrollbar">
+                {stats.divisions.map(d => (
+                    <div key={d.name}>
+                        <div className="flex justify-between mb-1">
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{d.name}</span>
+                            <span className="text-[9px] font-bold text-slate-900">{d.completed}/{d.total}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                             <div className="h-full bg-slate-800 rounded-full" style={{ width: `${d.total ? (d.completed/d.total)*100 : 0}%` }}></div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+         </div>
+
+         {/* 3. Project Status Overview */}
+         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+            <h3 className="text-sm font-black text-slate-900 uppercase mb-4 tracking-tight flex items-center gap-2">
+               <Folder size={16} className="text-indigo-600"/> Project Monitor
+            </h3>
+            <div className="space-y-4 flex-1 overflow-auto custom-scrollbar max-h-[250px]">
+               {activeProjects.slice(0, 8).map(p => {
                   const pTasks = tasks.filter(t => t.projectId === p.id);
                   const completed = pTasks.filter(t => t.completed).length;
                   const total = pTasks.length;
@@ -628,38 +662,42 @@ const DashboardView = ({ tasks, projects, currentUser }: { tasks: Task[]; projec
                   return (
                     <div key={p.id} className="group">
                        <div className="flex justify-between items-center mb-1.5">
-                          <div>
-                             <p className="font-bold text-slate-800 text-[10px] uppercase">{p.name}</p>
-                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{p.division} • {completed}/{total} Tasks</p>
+                          <div className="truncate pr-2">
+                             <p className="font-bold text-slate-800 text-[10px] uppercase truncate">{p.name}</p>
                           </div>
-                          <span className="text-[10px] font-black text-indigo-600">{percent}%</span>
+                          <span className={`text-[9px] font-black ${percent === 100 ? 'text-emerald-500' : 'text-indigo-600'}`}>{percent}%</span>
                        </div>
-                       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                       <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-500 ${percent === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${percent}%` }}></div>
                        </div>
                     </div>
                   )
                })}
-               {activeProjects.length === 0 && <p className="text-slate-400 italic text-center py-4 text-[10px]">No active projects.</p>}
+               {activeProjects.length === 0 && <p className="text-slate-400 italic text-center py-10 text-[10px]">No active projects.</p>}
             </div>
          </div>
 
-         {/* 3. Upcoming Deadlines */}
+         {/* 4. Upcoming Deadlines */}
          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
             <h3 className="text-sm font-black text-slate-900 uppercase mb-4 tracking-tight flex items-center gap-2">
-               <AlertCircle size={16} className="text-rose-500"/> Urgent Tasks
+               <AlertCircle size={16} className="text-rose-500"/> Critical Queue
             </h3>
             <div className="space-y-3 flex-1 overflow-auto custom-scrollbar max-h-[300px]">
-               {upcomingDeadlines.map(t => (
-                  <div key={t.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                     <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAfter(new Date(), new Date(t.endDate)) ? 'bg-rose-500' : 'bg-amber-400'}`}></div>
-                     <div>
-                        <p className="font-bold text-slate-800 text-[9px] line-clamp-1">{t.title}</p>
-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Due: {format(parseISO(t.endDate), 'dd MMM')}</p>
-                     </div>
-                  </div>
-               ))}
-               {upcomingDeadlines.length === 0 && <p className="text-slate-400 italic text-center py-4 text-[10px]">No upcoming deadlines.</p>}
+               {upcomingDeadlines.map(t => {
+                  const isOverdue = new Date(t.endDate) < new Date();
+                  return (
+                    <div key={t.id} className={`flex items-start gap-3 p-3 rounded-xl border ${isOverdue ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isOverdue ? 'bg-rose-500' : 'bg-amber-400'}`}></div>
+                        <div>
+                            <p className="font-bold text-slate-800 text-[9px] line-clamp-2 leading-tight">{t.title}</p>
+                            <p className={`text-[8px] font-black uppercase tracking-widest mt-1 ${isOverdue ? 'text-rose-500' : 'text-slate-400'}`}>
+                                {isOverdue ? 'OVERDUE' : 'DUE'}: {format(parseISO(t.endDate), 'dd MMM')}
+                            </p>
+                        </div>
+                    </div>
+                  );
+               })}
+               {upcomingDeadlines.length === 0 && <p className="text-slate-400 italic text-center py-10 text-[10px]">No pending tasks.</p>}
             </div>
          </div>
       </div>
@@ -667,13 +705,15 @@ const DashboardView = ({ tasks, projects, currentUser }: { tasks: Task[]; projec
   );
 };
 
-const StatCard = ({ label, value, icon, color }: any) => (
-  <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between transition-transform hover:-translate-y-1">
-    <div>
-        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+const StatCard = ({ label, value, icon, color, sub }: any) => (
+  <div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between transition-transform hover:-translate-y-1 relative overflow-hidden group">
+    <div className="relative z-10">
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
         <p className="text-2xl font-black text-slate-900 tracking-tight">{value}</p>
+        <p className="text-[8px] font-bold text-slate-300 uppercase mt-1">{sub}</p>
     </div>
-    <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
+    <div className={`p-3 rounded-xl ${color} relative z-10`}>{icon}</div>
+    <div className={`absolute -right-4 -bottom-4 w-20 h-20 rounded-full opacity-10 ${color.split(' ')[0]}`}></div>
   </div>
 );
 

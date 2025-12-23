@@ -1,8 +1,6 @@
 import { initializeApp } from "firebase/app";
 import * as firestore from "firebase/firestore";
 
-// Destructure from the namespace with an explicit any cast to handle 
-// environments where TypeScript fails to resolve the exports correctly.
 const { 
   getFirestore, 
   collection, 
@@ -15,7 +13,7 @@ const {
   orderBy, 
   setDoc, 
   getDocs 
-} = firestore as any;
+} = firestore;
 
 const firebaseConfig = {
   apiKey: "AIzaSyC3cvF-8_xfwCogL-H7bFTnY6pF3kPSk-M",
